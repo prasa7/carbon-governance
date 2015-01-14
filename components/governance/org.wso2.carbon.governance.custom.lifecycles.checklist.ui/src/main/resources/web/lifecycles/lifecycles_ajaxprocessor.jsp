@@ -20,22 +20,63 @@
 <%@ taglib uri="http://wso2.org/projects/carbon/taglibs/carbontags.jar"
            prefix="carbon" %>
 
+<%@ page import="org.apache.axiom.om.OMNode" %>
+<%@ page import="org.apache.axiom.om.OMElement" %>
+<%@ page import="org.apache.axiom.om.impl.builder.StAXOMBuilder" %>
+<%@ page import="org.apache.axiom.om.xpath.AXIOMXPath" %>
+<%@ page import="org.apache.commons.lang.StringEscapeUtils" %>
+<%@ page import="org.apache.commons.lang.StringUtils" %>
+<%@ page import="org.apache.juddi.v3.error.RegistryException" %>
 <%@ page import="org.wso2.carbon.governance.custom.lifecycles.checklist.stub.beans.xsd.LifecycleBean" %>
-<%@ page
-        import="org.wso2.carbon.governance.custom.lifecycles.checklist.stub.util.xsd.LifecycleActions" %>
-<%@ page
-        import="org.wso2.carbon.governance.custom.lifecycles.checklist.stub.util.xsd.Property" %>
-<%@ page
-        import="org.wso2.carbon.governance.custom.lifecycles.checklist.ui.clients.LifecycleServiceClient" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.checklist.stub.util.xsd.LifecycleActions" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.checklist.stub.util.xsd.Property" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.checklist.ui.clients.LifecycleServiceClient" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.history.ui.clients.ResourceServiceClient" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.history.ui.clients.WSRegistryServiceClient" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.history.ui.utils.DurationCalculator" %>
 <%@ page import="org.wso2.carbon.registry.common.utils.RegistryUtil" %>
 <%@ page import="org.wso2.carbon.registry.core.RegistryConstants" %>
+<%@ page import="org.wso2.carbon.utils.ServerConstants" %>
 <%@ page import="java.util.ArrayList" %>
 <%@ page import="java.util.Collections" %>
 <%@ page import="java.util.List" %>
-<%@ page import="org.apache.commons.lang.StringEscapeUtils" %>
-<%@ page import="org.apache.juddi.v3.error.RegistryException" %>
+<%@ page import="java.io.ByteArrayInputStream" %>
+<%@ page import="javax.xml.namespace.QName" %>
+<%@ page import="java.util.Date" %>
+<%@ page import="java.text.SimpleDateFormat" %>
 
 <%
+    /**
+     * Registry path for lifecycle history stored location
+     */
+    final String LOG_DEFAULT_PATH = "/_system/governance/repository/components/org.wso2.carbon.governance/" +
+            "lifecycles/history/";
+
+    /**
+     * Registry original path for lifecycle history
+     */
+    final String REGISTRY_LIFECYCLE_HISTORY_ORIGINAL_PATH = "registry.lifecycle_history.originalPath";
+
+    /**
+     * XPATH expression for extracting lifecycle history items targetState
+     */
+    final String HISTORY_ITEM_TARGET_STATE_XPATH = "//item[@targetState]";
+
+    /**
+     * XPATH expression for extracting lifecycle history items timestamp
+     */
+    final String HISTORY_ITEM_TIME_STAMP_XPATH = "//item[@timestamp]";
+
+    /**
+     * Lifecycle history items timestamp
+     */
+    final String HISTORY_ITEM_TIME_STAMP = "timestamp";
+
+    /**
+     * Lifecycle history items timestamp format
+     */
+    final String HISTORY_ITEM_TIME_STAMP_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS";
+
     class CheckListItem implements Comparable {
         String lifeCycleStatus;
         String name;
@@ -193,7 +234,7 @@
         if (lifecycleProps == null) {
             lifecycleProps = new Property[0];
         }
-        
+
         Property[] lifecycleVotes = bean.getLifecycleApproval();
         if (lifecycleVotes == null) {
         	lifecycleVotes = new Property[0];
@@ -368,7 +409,7 @@
 
             String lifeCycleLongName = "";
             String lifeCycleState = "";
-
+            String currentLifeCycleStateDuration = "";
             for (Property property : lifecycleProps) {
                 String propName = property.getKey();
                 String[] propValues = property.getValues();
@@ -466,6 +507,62 @@
                     checkListItems.add(checkListItem);
                 }
             }
+
+            // Code below is the implementation of time in lifecycle current state feature
+            String cookie = (String) session.getAttribute(ServerConstants.ADMIN_SERVICE_COOKIE);
+            ResourceServiceClient resourceServiceClient = new ResourceServiceClient(cookie, config, session);
+            WSRegistryServiceClient wsRegistryServiceClient = new WSRegistryServiceClient(cookie, config, session);
+
+            String originalPath = resourceServiceClient.getProperty(path, REGISTRY_LIFECYCLE_HISTORY_ORIGINAL_PATH);
+            // If REGISTRY_LIFECYCLE_HISTORY_ORIGINAL_PATH property is set, use it as the resource path
+            // else use the path variable passed with url
+            if (StringUtils.isEmpty(originalPath)) {
+                originalPath = path.replaceAll("/", "_");
+            } else {
+                originalPath = originalPath.replaceAll("/", "_");
+            }
+
+            List<OMNode> transitionNodesList = null;
+            // If log file for the particular resource exists read the content
+            if (wsRegistryServiceClient.resourceExists(LOG_DEFAULT_PATH + originalPath)) {
+
+                String content = resourceServiceClient.getTextContent(LOG_DEFAULT_PATH + originalPath);
+
+                OMElement documentElement = null;
+                if (content != null) {
+                    documentElement =
+                            new StAXOMBuilder(new ByteArrayInputStream(content.getBytes())).getDocumentElement();
+                    // Select 'item' nodes with an attribute 'targetState'
+                    AXIOMXPath targetStateXpath = new AXIOMXPath(HISTORY_ITEM_TARGET_STATE_XPATH);
+                    transitionNodesList = targetStateXpath.selectNodes(documentElement);
+                }
+
+                OMElement omElement;
+                // If loop runs when there is a lifecycle state change and else runs in initial life cycle state
+                if (transitionNodesList != null && !transitionNodesList.isEmpty()) {
+                    // First node is selected because the latest updated history is stored in first node
+                    omElement = (OMElement) transitionNodesList.get(0);
+                } else {
+                    AXIOMXPath targetStateXpath = new AXIOMXPath(HISTORY_ITEM_TIME_STAMP_XPATH);
+                    transitionNodesList = targetStateXpath.selectNodes(documentElement);
+                    // transitionNodesList doesn't get null values because it always has a history entry as item with
+                    // timestamp
+                    omElement = (OMElement) transitionNodesList.get(transitionNodesList.size() - 1);
+                }
+                String lastStateChangedTime = omElement.getAttribute(new QName(HISTORY_ITEM_TIME_STAMP))
+                        .getAttributeValue();
+
+                // Getting current time
+                Date currentTimeStamp = new Date();
+                SimpleDateFormat dateFormat = new SimpleDateFormat(HISTORY_ITEM_TIME_STAMP_FORMAT);
+                String currentTime = dateFormat.format(currentTimeStamp);
+
+                // Calculating the time duration
+                DurationCalculator durationCalculator = new DurationCalculator();
+                currentLifeCycleStateDuration = durationCalculator.calculateDifference(currentTime,
+                        lastStateChangedTime);
+            }
+
             Collections.sort(checkListItems);
 
             if (!bean.getVersionView()) {
@@ -494,6 +591,10 @@
                     <th><fmt:message key="lifecycle.state"/>:</th>
                     <td style="border:0"><%=lifeCycleState%>
                     </td>
+                </tr>
+                <tr>
+                    <th><fmt:message key="lifecycle.currentLifeCycleStateDuration"/>:</th>
+                    <td style="border:0"><%=currentLifeCycleStateDuration%>
                 </tr>
                 <tr>
                     <th>Make this default:</th>
