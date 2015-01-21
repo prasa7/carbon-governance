@@ -117,4 +117,34 @@ public class LifecycleConstants {
     public static final String REGISTRY_CUSTOM_LIFECYCLE_USER_VOTE =
             "registry.custom_lifecycle.user.vote";
 
+    /**
+     * Registry path for lifecycle history stored location.
+     */
+    public static final String LOG_DEFAULT_PATH = "/_system/governance/repository/components/org.wso2.carbon" +
+            ".governance/lifecycles/history/";
+
+    /**
+     * XPATH expression for extracting lifecycle history items targetState.
+     */
+    public static final String HISTORY_ITEM_TARGET_STATE_XPATH = "//item[@targetState]";
+
+    /**
+     * XPATH expression for extracting lifecycle history items timestamp.
+     */
+    public static final String HISTORY_ITEM_TIME_STAMP_XPATH = "//item[@timestamp]";
+
+    /**
+     * XPATH expression for extracting lifecycle history items timestamp.
+     */
+    public static final String HISTORY_ITEM_LIFECYCLE_NAME_PARAMETER = "@aspect";
+
+    /**
+     * Lifecycle history items timestamp.
+     */
+    public static final String HISTORY_ITEM_TIME_STAMP = "timestamp";
+
+    /**
+     * Lifecycle history items timestamp format.
+     */
+    public static final String HISTORY_ITEM_TIME_STAMP_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS";
 }

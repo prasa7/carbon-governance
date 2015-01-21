@@ -33,7 +33,12 @@
 <%@ page import="java.util.Collections" %>
 <%@ page import="java.util.List" %>
 <%@ page import="org.apache.commons.lang.StringEscapeUtils" %>
-<%@ page import="org.apache.juddi.v3.error.RegistryException" %>
+<%@ page import="org.wso2.carbon.governance.custom.lifecycles.checklist.ui.clients.LifeCycleManagementServiceClient" %>
+<%@ page import="org.wso2.carbon.ui.CarbonUIUtil" %>
+<%@ page import="org.wso2.carbon.CarbonConstants" %>
+<%@ page import="org.apache.axis2.context.ConfigurationContext" %>
+<%@ page import="org.wso2.carbon.utils.ServerConstants" %>
+<%@ page import="org.wso2.carbon.registry.core.exceptions.RegistryException" %>
 
 <%
     class CheckListItem implements Comparable {
@@ -368,6 +373,7 @@
 
             String lifeCycleLongName = "";
             String lifeCycleState = "";
+            String currentLifeCycleStateDuration = "";
 
             for (Property property : lifecycleProps) {
                 String propName = property.getKey();
@@ -466,6 +472,26 @@
                     checkListItems.add(checkListItem);
                 }
             }
+
+            String serverURL = CarbonUIUtil.getServerURL(config.getServletContext(), session);
+            ConfigurationContext configContext = (ConfigurationContext) config.getServletContext()
+                    .getAttribute(CarbonConstants.CONFIGURATION_CONTEXT);
+            String cookie = (String) session.getAttribute(ServerConstants.ADMIN_SERVICE_COOKIE);
+            LifeCycleManagementServiceClient lifeCycleManagementServiceClient;
+
+            try {
+                lifeCycleManagementServiceClient = new LifeCycleManagementServiceClient(cookie, serverURL,
+                        configContext);
+                currentLifeCycleStateDuration = lifeCycleManagementServiceClient
+                        .getLifecycleCurrentStateDuration(path, lifecycleName);
+            } catch (RegistryException e) {
+                String cause = e.getMessage();
+        %>
+        <script type="text/javascript">
+            CARBON.showErrorDialog('<%=cause%>');
+        </script>
+        <%
+            }
             Collections.sort(checkListItems);
 
             if (!bean.getVersionView()) {
@@ -495,6 +521,10 @@
                     <td style="border:0"><%=lifeCycleState%>
                     </td>
                 </tr>
+                <tr>
+                    <th><fmt:message key="lifecycle.currentLifeCycleStateDuration"/>:</th>
+                    <td style="border:0"><%=currentLifeCycleStateDuration%>
+                    </tr>
                 <tr>
                     <th>Make this default:</th>
                     <td style="border:0">
