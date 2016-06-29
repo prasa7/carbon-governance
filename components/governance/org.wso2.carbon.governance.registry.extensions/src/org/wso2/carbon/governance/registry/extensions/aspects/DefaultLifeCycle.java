@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2006 - 2016, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,18 +26,25 @@ import org.apache.axis2.util.XMLUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.commons.scxml.io.SCXMLParser;
-import org.apache.commons.scxml.model.*;
+import org.apache.commons.scxml.model.Data;
+import org.apache.commons.scxml.model.Datamodel;
+import org.apache.commons.scxml.model.ModelException;
+import org.apache.commons.scxml.model.SCXML;
+import org.apache.commons.scxml.model.State;
+import org.apache.commons.scxml.model.Transition;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.w3c.dom.Element;
 import org.wso2.carbon.governance.api.exception.GovernanceException;
+import org.wso2.carbon.governance.registry.extensions.aspects.utils.LifecycleCheckpointUtils;
 import org.wso2.carbon.governance.registry.extensions.aspects.utils.LifecycleConstants;
 import org.wso2.carbon.governance.registry.extensions.aspects.utils.StatCollection;
 import org.wso2.carbon.governance.registry.extensions.aspects.utils.StatWriter;
 import org.wso2.carbon.governance.registry.extensions.beans.ApprovalBean;
 import org.wso2.carbon.governance.registry.extensions.beans.CheckItemBean;
 import org.wso2.carbon.governance.registry.extensions.beans.CustomCodeBean;
+import org.wso2.carbon.governance.registry.extensions.beans.InputBean;
 import org.wso2.carbon.governance.registry.extensions.beans.PermissionsBean;
 import org.wso2.carbon.governance.registry.extensions.beans.ScriptBean;
 import org.wso2.carbon.governance.registry.extensions.executors.utils.ExecutorConstants;
@@ -64,9 +71,36 @@ import javax.xml.stream.XMLStreamException;
 import java.io.CharArrayReader;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
-import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.*;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.addCheckItems;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.addScripts;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.addTransitionApprovalItems;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.addTransitionInputs;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.addTransitionUI;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.clearCheckItems;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.clearTransitionApprovals;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.extractCheckItemValues;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.extractVotesValues;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.getCheckItemName;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.getHistoryInfoElement;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.isCheckItemClickAllowed;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.isTransitionAllowed;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateCheckItems;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionApprovals;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionExecutors;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionInputs;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionPermissions;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionScripts;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionUIs;
+import static org.wso2.carbon.governance.registry.extensions.aspects.utils.Utils.populateTransitionValidations;
 
 
 public class DefaultLifeCycle extends Aspect {
@@ -86,6 +120,7 @@ public class DefaultLifeCycle extends Aspect {
     private Map<String, List<String>> stateEvents;
     private Map<String, List<ScriptBean>> scriptElements;
     private Map<String, Map<String,String>> transitionUIs;
+    private Map<String, List<InputBean>> transitionInputs;
     private Map<String, List<ApprovalBean>> transitionApproval;
 
 
@@ -140,6 +175,7 @@ public class DefaultLifeCycle extends Aspect {
         transitionExecution.clear();
         transitionUIs.clear();
         transitionApproval.clear();
+        transitionInputs.clear();
     }
 
     private void initialize() {
@@ -151,6 +187,7 @@ public class DefaultLifeCycle extends Aspect {
         stateEvents = new HashMap<String, List<String>>();
         scriptElements = new HashMap<String, List<ScriptBean>>();
         transitionUIs = new HashMap<String, Map<String, String>>();
+        transitionInputs = new HashMap<String, List<InputBean>>();
         transitionApproval = new HashMap<String, List<ApprovalBean>>();
 //        By default we enable auditing
         isAuditEnabled = true;
@@ -212,6 +249,8 @@ public class DefaultLifeCycle extends Aspect {
 
             resource.setProperty(ExecutorConstants.REGISTRY_LC_NAME, aspectName);
             List<String> propertyValues = resource.getPropertyValues(lifecycleProperty);
+            // Add current lifecycle's checkpoint related properties.
+            addCheckPointProperties(resource, null);
 
             if (propertyValues != null && propertyValues.size() > 0) {
                 return;
@@ -228,6 +267,7 @@ public class DefaultLifeCycle extends Aspect {
             addTransitionApprovalItems(resource, transitionApproval.get(initialState), initialState, aspectName);
             addScripts(initialState, resource,scriptElements.get(initialState), aspectName);
             addTransitionUI(resource,transitionUIs.get(initialState), aspectName);
+            addTransitionInputs(initialState,resource,transitionInputs.get(initialState), aspectName);
 
         } catch (Exception e) {
             String message = "Resource does not contain a valid XML configuration: " + e.toString();
@@ -409,6 +449,8 @@ public class DefaultLifeCycle extends Aspect {
 	//                              We are going to run the custom executors now
 	                                runCustomExecutorsCode(action, requestContext, transitionExecution.get(currentState)
 	                                        , currentState, nextState);
+                                    // Update current lifecycle state duration properties.
+                                    updateCheckpointProperties(resource, nextState);
 	//                              Doing the JS execution
 	                                List<ScriptBean> scriptElement = scriptElements.get(currentState);
 	                                try {
@@ -464,6 +506,7 @@ public class DefaultLifeCycle extends Aspect {
 	            addTransitionApprovalItems(resource, transitionApproval.get(state.getId()), state.getId(), aspectName);
 	            addScripts(state.getId(), resource,scriptElements.get(state.getId()), aspectName);
 	            addTransitionUI(resource, transitionUIs.get(state.getId()), aspectName);
+                addTransitionInputs(state.getId(),resource, transitionInputs.get(state.getId()), aspectName);
 	
 	//            For auditing purposes
 	            statCollection.setTargetState(nextState);
@@ -519,6 +562,7 @@ public class DefaultLifeCycle extends Aspect {
                     populateTransitionUIs(currentStateName, node,transitionUIs);
                     populateTransitionExecutors(currentStateName, node,transitionExecution);
                     populateTransitionApprovals(currentStateName,node,transitionApproval);
+                    populateTransitionInputs(currentStateName,node,transitionInputs);
                 }
             }
 
@@ -854,4 +898,75 @@ public class DefaultLifeCycle extends Aspect {
         }
     }
 
+    /**
+     * This method is used to add current lifecycle's checkpoint properties.
+     *
+     * @param resource      registry resource.
+     * @param nextState     next lifecycle state.
+     * @throws RegistryException
+     */
+    private void addCheckPointProperties(Resource resource, String nextState) throws RegistryException {
+
+        if (nextState == null) {
+            nextState = LifecycleCheckpointUtils.getLCInitialStateId(configurationElement);
+        }
+
+        if (nextState != null) {
+            String xpathString =
+                    LifecycleConstants.XPATH_STATE_WITH_ID + nextState + "']" + LifecycleConstants.XPATH_CHECKPOINT;
+            List checkpoints = LifecycleCheckpointUtils.evaluateXpath(configurationElement, xpathString, null);
+
+            if (!checkpoints.isEmpty()) {
+                for (Object checkpoint : checkpoints) {
+                    OMElement checkpointOMElement = (OMElement) checkpoint;
+                    String checkpointId = checkpointOMElement
+                            .getAttributeValue(new QName(LifecycleConstants.LIFECYCLE_CHECKPOINT_NAME));
+                    String checkpointDurationColour = checkpointOMElement
+                            .getAttributeValue(new QName(LifecycleConstants.LIFECYCLE_DURATION_COLOUR));
+                    String checkpointDurationMinBoundary = checkpointOMElement.getFirstElement()
+                            .getAttributeValue(new QName(LifecycleConstants.LIFECYCLE_LOWER_BOUNDARY));
+                    String checkpointDurationMaxBoundary = checkpointOMElement.getFirstElement()
+                            .getAttributeValue(new QName(LifecycleConstants.LIFECYCLE_UPPER_BOUNDARY));
+
+                    resource.addProperty(
+                            LifecycleConstants.REGISTRY_LIFECYCLE + aspectName + LifecycleConstants.CHECKPOINT,
+                            checkpointId);
+                    List<String> lcCheckpointProperties1 = new ArrayList<>();
+                    lcCheckpointProperties1.add(0, checkpointId);
+                    lcCheckpointProperties1.add(1, checkpointDurationMinBoundary);
+                    lcCheckpointProperties1.add(2, checkpointDurationMaxBoundary);
+                    lcCheckpointProperties1.add(3, LifecycleCheckpointUtils.getCurrentTime());
+                    lcCheckpointProperties1.add(4, checkpointDurationColour);
+
+                    String checkpointPropertyKey = LifecycleConstants.REGISTRY_LIFECYCLE + aspectName +
+                            LifecycleConstants.CHECKPOINT + LifecycleConstants.DOT + checkpointId;
+                    resource.removeProperty(checkpointPropertyKey);
+                    resource.setProperty(checkpointPropertyKey, lcCheckpointProperties1);
+                }
+            }
+        }
+        resource.setProperty(LifecycleConstants.REGISTRY_LIFECYCLE + aspectName + LifecycleConstants.LAST_UPDATED_TIME,
+                LifecycleCheckpointUtils.getCurrentTime());
+    }
+
+    /**
+     * This method is used to update checkpoint current state duration information.
+     *
+     * @param resource       registry resource.
+     * @param nextState      next lifecycle state.
+     * @throws RegistryException
+     */
+    private void updateCheckpointProperties(Resource resource, String nextState)
+            throws RegistryException {
+
+        String checkpointProperty = LifecycleConstants.REGISTRY_LIFECYCLE + aspectName + LifecycleConstants.CHECKPOINT;
+        List<String> checkpoints = resource.getPropertyValues(checkpointProperty);
+        if (checkpoints != null && !checkpoints.isEmpty()) {
+            for (String checkpoint : checkpoints) {
+                resource.removeProperty(checkpointProperty + LifecycleConstants.DOT + checkpoint);
+            }
+        }
+        resource.removeProperty(checkpointProperty);
+        addCheckPointProperties(resource, nextState);
+    }
 }

@@ -18,6 +18,7 @@
 package org.wso2.carbon.governance.lcm.beans;
 
 import java.util.List;
+import java.util.Map;
 
 public class LCStateBean {
 
@@ -30,6 +31,31 @@ public class LCStateBean {
     private List<LifeCycleCheckListItemBean> lifeCycleCheckListItemBeans;
 
     private LifeCycleActionsBean lifeCycleActionsBean;
+
+    private Map<String, List<LifeCycleInputBean>> lifeCycleInputBeanMap;
+
+    // This variable holds lifecycle's current state duration.
+    private String lifeCycleCurrentStateDuration;
+
+    // This variable holds lifecycle's current state duration colour.
+    private String lifeCycleCurrentStateDurationColour;
+
+    public String getLifeCycleCurrentStateDuration() {
+        return lifeCycleCurrentStateDuration;
+    }
+
+    public void setLifeCycleCurrentStateDuration(String lifeCycleCurrentStateDuration) {
+        this.lifeCycleCurrentStateDuration = lifeCycleCurrentStateDuration;
+    }
+
+    public String getLifeCycleCurrentStateDurationColour() {
+        return lifeCycleCurrentStateDurationColour;
+    }
+
+    public void setLifeCycleCurrentStateDurationColour(String lifeCycleCurrentStateDurationColour) {
+        this.lifeCycleCurrentStateDurationColour = lifeCycleCurrentStateDurationColour;
+    }
+
 
     public List<LifeCycleApprovalBean> getLifeCycleApprovalBeanList() {
         return lifeCycleApprovalBeanList;
@@ -69,5 +95,13 @@ public class LCStateBean {
 
     public void setLifeCycleState(String lifeCycleState) {
         this.lifeCycleState = lifeCycleState;
+    }
+
+    public Map<String, List<LifeCycleInputBean>> getLifeCycleInputBeanMap() {
+        return lifeCycleInputBeanMap;
+    }
+
+    public void setLifeCycleInputBeanMap(Map<String, List<LifeCycleInputBean>> lifeCycleInputBeanMap) {
+        this.lifeCycleInputBeanMap = lifeCycleInputBeanMap;
     }
 }

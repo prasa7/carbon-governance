@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2008-2016, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -305,5 +305,50 @@ public class GovernanceConstants {
      * The version attribute.
      */
     public static final String VERSION_ATTRIBUTE = "overview_version";
+
+    //lifecycle history path relative to governace registyr
+    // Ex:repository/components/org.wso2.carbon.governance/lifecycles/history
+    public static final String LIFECYCLE_HISTORY_PATH = RegistryConstants.GOVERNANCE_COMPONENT_PATH
+                                                        + RegistryConstants.PATH_SEPARATOR + "lifecycles/history/";
+
+    /**
+     * Defines the prefix of the state property
+     */
+    public static final String REGISTRY_LIFECYCLE = "registry.lifecycle.";
+
+    /**
+     * lifecycle checkpoint boundary lower boundary QName.
+     */
+    public static final String LIFECYCLE_LOWER_BOUNDARY = "min";
+
+    /**
+     * lifecycle checkpoint boundary upper boundary QName.
+     */
+    public static final String LIFECYCLE_UPPER_BOUNDARY = "max";
+
+    /**
+     * lifecycle checkpoint duration colour QName.
+     */
+    public static final String LIFECYCLE_DURATION_COLOUR = "durationColour";
+
+    /**
+     * lifecycle checkpoint duration colour QName.
+     */
+    public static final String LIFECYCLE_DURATION= "currentStateDuration";
+
+    /**
+     * lifecycle checkpoint name QName.
+     */
+    public static final String LIFECYCLE_CHECKPOINT_ID = "id";
+
+    /**
+     * This is the character used in lifecycle checkpoint.
+     */
+    public static final String CHECKPOINT = ".checkpoint";
+
+    /**
+     * This is the character used in lifecycle checkpoint.
+     */
+    public static final String LAST_UPDATED_TIME = ".lastStateUpdatedTime";
 
 }

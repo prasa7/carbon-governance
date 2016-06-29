@@ -33,6 +33,12 @@ public class LifecycleConstants {
             "registry.custom_lifecycle.checklist.js.script.console.";
 
     /**
+     * Defines the prefix of the property name that is used to add input elements
+     */
+    public static final String REGISTRY_CUSTOM_LIFECYCLE_INPUTS =
+            "registry.custom_lifecycle.inputs.";
+
+    /**
      * Defines the prefix of the property name that is used to add the transition UIs
      */
     public static final String REGISTRY_CUSTOM_LIFECYCLE_CHECKLIST_TRANSITION_UI =
@@ -183,6 +189,12 @@ public class LifecycleConstants {
     public static final String XPATH_CHECKPOINT = "/*[name()='checkpoints']/*[name()='checkpoint']";
 
     /**
+     * XPath for checkpoint.
+     */
+    public static final String XPATH_STATE_ID = "/aspect/configuration/lifecycle/*[name()='scxml']/*[name()='state']";
+
+
+    /**
      * lifecycle configuration namespace URI.
      */
     public static final String LIFECYCLE_CONFIGURATION_NAMESPACE_URI = "http://www.w3.org/2005/07/scxml";
@@ -216,4 +228,14 @@ public class LifecycleConstants {
      * This is the character used in lifecycle property keys
      */
     public static final String DOT = ".";
+
+    /**
+     * This is the character used in lifecycle checkpoint.
+     */
+    public static final String CHECKPOINT = ".checkpoint";
+
+    /**
+     * This is the character used in lifecycle checkpoint.
+     */
+    public static final String LAST_UPDATED_TIME = ".lastStateUpdatedTime";
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2008-2016, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,11 @@ import org.wso2.carbon.base.CarbonContextHolderBase;
 import org.wso2.carbon.base.UnloadTenantTask;
 import org.wso2.carbon.context.CarbonContext;
 import org.wso2.carbon.context.PrivilegedCarbonContext;
-import org.wso2.carbon.governance.api.cache.*;
+import org.wso2.carbon.governance.api.cache.ArtifactCache;
+import org.wso2.carbon.governance.api.cache.ArtifactCacheManager;
+import org.wso2.carbon.governance.api.cache.RXTConfigCacheEntryCreatedListener;
+import org.wso2.carbon.governance.api.cache.RXTConfigCacheEntryRemovedListener;
+import org.wso2.carbon.governance.api.cache.RXTConfigCacheEntryUpdatedListener;
 import org.wso2.carbon.governance.api.common.dataobjects.GovernanceArtifact;
 import org.wso2.carbon.governance.api.common.dataobjects.GovernanceArtifactImpl;
 import org.wso2.carbon.governance.api.common.util.ApproveItemBean;
@@ -52,6 +56,7 @@ import org.wso2.carbon.registry.core.Resource;
 import org.wso2.carbon.registry.core.config.RegistryContext;
 import org.wso2.carbon.registry.core.exceptions.RegistryException;
 import org.wso2.carbon.registry.core.jdbc.handlers.RequestContext;
+import org.wso2.carbon.registry.core.pagination.PaginationContext;
 import org.wso2.carbon.registry.core.secure.AuthorizationFailedException;
 import org.wso2.carbon.registry.core.service.RegistryService;
 import org.wso2.carbon.registry.core.session.UserRegistry;
@@ -65,13 +70,6 @@ import org.wso2.carbon.utils.component.xml.config.ManagementPermission;
 import org.wso2.carbon.utils.multitenancy.MultitenantConstants;
 import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
-import javax.cache.Cache;
-import javax.cache.CacheManager;
-import javax.cache.Caching;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
 import java.io.StringReader;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -90,6 +88,13 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.cache.Cache;
+import javax.cache.CacheManager;
+import javax.cache.Caching;
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 
 /**
  * Utilities used by various Governance API related functionality.
@@ -700,6 +705,7 @@ public class GovernanceUtils {
         try {
             String path = getArtifactPath(registry, artifactId);
             if (registry.resourceExists(path)) {
+                deleteLifecycleHistoryFile(path, registry);
                 registry.delete(path);
             }
             ArtifactCache artifactCache =
@@ -1815,7 +1821,7 @@ public class GovernanceUtils {
             throw new GovernanceException(e);
         }
         List<String> possibleKeys = Arrays.asList("createdAfter", "createdBefore", "updatedAfter", "updatedBefore", "author", "author!", "associationType", "associationDest",
-                "updater", "updater!", "tags", "content", "mediaType", "mediaType!", "lcName", "lcState");
+                "updater", "updater!", "tags", "taxonomy", "content", "mediaType", "mediaType!", "lcName", "lcState");
 
         List<String> finalTempList = new ArrayList<>();
         if (StringUtils.isNotEmpty(criteria)) {
@@ -1854,6 +1860,7 @@ public class GovernanceUtils {
                             break;
                         case "tags":
                         case "associationType":
+                        case "taxonomy":
                         case "associationDest":
                             fields.put(subParts[0], subParts[1]);
                             break;
@@ -1866,7 +1873,13 @@ public class GovernanceUtils {
                 } else {
                     if(subParts[0].contains(":")) {
                         String value = subParts[1].toLowerCase();
-                        if(value.contains(" ")) {
+                        if(value.contains(" or ")){
+                            String[] values = value.split(" or ");
+                            for(int i=0; i<values.length; i++){
+                                values[i] = values[i].trim().replace(" ", "\\ ");
+                            }
+                            value = StringUtils.join(values, " OR ");
+                        } else if(value.contains(" ")) {
                             value = value.replace(" ", "\\ ");
                         }
                         String[] tableParts = subParts[0].split(":");
@@ -1875,8 +1888,15 @@ public class GovernanceUtils {
                         }
                         fields.put(subParts[0].replace(":", "_"), value);
                     } else {
-                        String value = subParts[1];
-                        if(value.contains(" ")) {
+                        String value = subParts[1].toLowerCase();
+
+                        if(value.contains(" or ")){
+                            String[] values = value.split(" or ");
+                            for(int i=0; i<values.length; i++){
+                                values[i] = values[i].trim().replace(" ", "\\ ");
+                            }
+                            value = StringUtils.join(values, " OR ");
+                        } else if(value.contains(" ")) {
                             value = value.replace(" ", "\\ ");
                         }
                         if(!subParts[0].equals("name")) {
@@ -1898,6 +1918,12 @@ public class GovernanceUtils {
 
         // Following check is done since Attribute Search service only has a way to search one property at a time
         if(possibleProperties.size() == 1) {
+
+            int paginationSizeAtt = 0;
+            if (PaginationContext.getInstance() !=  null) {
+                paginationSizeAtt = PaginationContext.getInstance().getLength();
+            }
+
             for(Map.Entry<String, String> entry : possibleProperties.entrySet()) {
                 String propertyName = entry.getKey();
                 fields.remove("overview_" + propertyName);
@@ -1908,10 +1934,46 @@ public class GovernanceUtils {
 
             List<GovernanceArtifact> propertySearchResults = performAttributeSearch(fields, registry);
 
-            Set<GovernanceArtifact> set  = new TreeSet<>(new Comparator<GovernanceArtifact>() {
-                public int compare(GovernanceArtifact artifact1, GovernanceArtifact artifact2)
-                {
-                    return artifact1.getId().compareTo(artifact2.getId()) ;
+            Set<GovernanceArtifact> set = new TreeSet<>(new Comparator<GovernanceArtifact>() {
+                public int compare(GovernanceArtifact artifact1, GovernanceArtifact artifact2) {
+                    PaginationContext paginationContext = PaginationContext.getInstance();
+                    if (paginationContext != null) {
+                        String sortBy = paginationContext.getSortBy();
+                        String sortOrder = paginationContext.getSortOrder();
+                        try {
+                            if (StringUtils.isNotBlank(sortBy) && StringUtils.isNotBlank(sortOrder)) {
+                                switch (sortOrder) {
+                                    case "ASC":
+                                        return comparison(artifact1.getAttribute(sortBy),
+                                                artifact2.getAttribute(sortBy), sortBy);
+                                    case "DES":
+                                    case "DESC":
+                                        return comparison(artifact2.getAttribute(sortBy),
+                                                artifact1.getAttribute(sortBy), sortBy);
+                                    default:
+                                        return artifact1.getId().compareTo(artifact2.getId());
+                                }
+                            }
+                        } catch (GovernanceException e) {
+                            log.error("Error when trying to compare the sortBy attributes of the returned artifacts.",
+                                    e);
+                        }
+                    }
+
+                    return artifact1.getId().compareTo(artifact2.getId());
+                }
+
+                private int comparison(String value1, String value2, String sortBy) throws GovernanceException {
+                    //If sortBy is equal to a date/time attribute, preserve the order returned from the solr client.
+                    if(sortBy.equals("createdDate") || sortBy.equals("lastUpdatedDate")) {
+                        return 1;
+                    }
+                    //Else if sortBy an attribute
+                    if (value1 == null) {
+                        throw new GovernanceException("Artifact does not contain the attribute " + sortBy);
+                    }
+
+                    return value1.compareTo(value2);
                 }
             });
 
@@ -1921,6 +1983,10 @@ public class GovernanceUtils {
             List<GovernanceArtifact> mergeListWithoutDuplicates = new ArrayList<>();
             mergeListWithoutDuplicates.addAll(set);
 
+            if (paginationSizeAtt != 0 && PaginationContext.getInstance() != null){
+                int paginationSizePros = PaginationContext.getInstance().getLength();
+                PaginationContext.getInstance().setLength(paginationSizeAtt +paginationSizePros);
+            }
             return mergeListWithoutDuplicates;
         }
 
@@ -2389,6 +2455,7 @@ public class GovernanceUtils {
             throws GovernanceException {
         try {
             if (registry.resourceExists(path)) {
+                deleteLifecycleHistoryFile(path, registry);
                 registry.delete(path);
             }
             ArtifactCache artifactCache =
@@ -2480,6 +2547,26 @@ public class GovernanceUtils {
                                                   "Please provide a value for this parameter.");
                 }
             }
+        }
+    }
+
+    /**
+     * This method deletes the lifecycle history file of a given artifact
+     * @param artifactPath The resource path relative to governance registry
+     * @param registry governace registry instance
+     * @throws GovernanceException
+     */
+    private static void deleteLifecycleHistoryFile(String artifactPath, Registry registry) throws GovernanceException {
+        String artifactRootPath = RegistryConstants.GOVERNANCE_REGISTRY_BASE_PATH + artifactPath;
+        String historyResourcePath = GovernanceConstants.LIFECYCLE_HISTORY_PATH
+                                     + artifactRootPath.replaceAll("/", "_");
+        try {
+            if (registry.resourceExists(historyResourcePath)) {
+                registry.delete(historyResourcePath);
+            }
+        } catch (RegistryException e) {
+            String msg = "Error in deleting the the lifecycle history file at: " + historyResourcePath + ".";
+            throw new GovernanceException(msg, e);
         }
     }
 }

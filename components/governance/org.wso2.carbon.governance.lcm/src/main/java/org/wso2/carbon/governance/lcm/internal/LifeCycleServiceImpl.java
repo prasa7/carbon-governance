@@ -19,9 +19,15 @@ package org.wso2.carbon.governance.lcm.internal;
 
 import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.context.RegistryType;
+import org.wso2.carbon.governance.api.common.dataobjects.GovernanceArtifact;
 import org.wso2.carbon.governance.api.util.GovernanceConstants;
 import org.wso2.carbon.governance.api.util.GovernanceUtils;
-import org.wso2.carbon.governance.lcm.beans.*;
+import org.wso2.carbon.governance.lcm.beans.DurationBean;
+import org.wso2.carbon.governance.lcm.beans.LCStateBean;
+import org.wso2.carbon.governance.lcm.beans.LifeCycleActionsBean;
+import org.wso2.carbon.governance.lcm.beans.LifeCycleApprovalBean;
+import org.wso2.carbon.governance.lcm.beans.LifeCycleCheckListItemBean;
+import org.wso2.carbon.governance.lcm.beans.LifeCycleInputBean;
 import org.wso2.carbon.governance.lcm.exception.LifeCycleException;
 import org.wso2.carbon.governance.lcm.services.LifeCycleService;
 import org.wso2.carbon.governance.lcm.util.CommonUtil;
@@ -40,16 +46,21 @@ import org.wso2.carbon.registry.core.utils.RegistryUtils;
 import org.wso2.carbon.user.core.UserRealm;
 import org.wso2.carbon.user.core.UserStoreException;
 
+import javax.cache.Cache;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import javax.cache.Cache;
 
 /**
  * API implementation of the LifeCycleService(Used to fetch lifecycle information) .
  */
 public class LifeCycleServiceImpl implements LifeCycleService {
+
+    public static final String REGISTRY_CUSTOM_LIFECYCLE_INPUTS = "registry.custom_lifecycle.inputs.";
+
     @Override
     public boolean createLifecycle(String lifecycleConfiguration) throws LifeCycleException {
         throw new UnsupportedOperationException("Not implemented, yet");
@@ -106,7 +117,23 @@ public class LifeCycleServiceImpl implements LifeCycleService {
             if (path != null) {
                 removeCache(registry, path);
                 Resource resource = registry.get(path);
-                return getCheckListItems(resource, artifactLC, roleNames, registry);
+                LCStateBean lifeCycleStateBean = getCheckListItems(resource, artifactLC, roleNames, registry);
+
+                GovernanceArtifact governanceArtifact =
+                        GovernanceUtils.retrieveGovernanceArtifactById(registry, artifactId);
+
+                Map<String, String> currentStateDurationData = governanceArtifact
+                        .getCurrentStateDuration(artifactId, artifactLC);
+
+                if (currentStateDurationData != null && !currentStateDurationData.isEmpty()) {
+                    lifeCycleStateBean
+                            .setLifeCycleCurrentStateDuration(currentStateDurationData.get("currentStateDuration"));
+                    lifeCycleStateBean
+                            .setLifeCycleCurrentStateDurationColour(currentStateDurationData.get("durationColour"));
+
+                }
+
+                return lifeCycleStateBean;
             } else {
                 throw new LifeCycleException("Unable to find the artifact " + artifactId);
             }
@@ -132,6 +159,15 @@ public class LifeCycleServiceImpl implements LifeCycleService {
                     for (String aspect : aspects) {
                         LCStateBean lifeCycleStateBean =
                                 getCheckListItems(resource, aspect, rolesList, registry);
+
+                        GovernanceArtifact governanceArtifact =
+                                GovernanceUtils.retrieveGovernanceArtifactByPath(registry, resource.getPath());
+                        lifeCycleStateBean.setLifeCycleCurrentStateDuration(governanceArtifact.getCurrentStateDuration
+                                (resource.getPath(), aspect).get("currentStateDuration"));
+                        lifeCycleStateBean.setLifeCycleCurrentStateDurationColour(
+                                governanceArtifact.getCurrentStateDuration(resource.getPath(), aspect)
+                                        .get("durationColour"));
+
                         lifeCycleStateBeans.add(lifeCycleStateBean);
                     }
                 }
@@ -180,6 +216,9 @@ public class LifeCycleServiceImpl implements LifeCycleService {
         List<String> permissionList = new ArrayList();
         List<String> approvePermissionList = new ArrayList();
 
+
+        Map<String, List<LifeCycleInputBean>> lifeCycleInputBeanMap = new HashMap();
+
         Set propertyKeys = lifecycleProps.keySet();
 
         for (Object propertyObj : propertyKeys) {
@@ -216,6 +255,25 @@ public class LifeCycleServiceImpl implements LifeCycleService {
                         }
                     }
                 }
+            }
+        }
+        String lifecyleInputs = REGISTRY_CUSTOM_LIFECYCLE_INPUTS;
+        for (Object key : lifecycleProps.keySet()) {
+            if(key.toString().startsWith(lifecyleInputs + artifactLC + "." + artifactLCState)){
+                List<String> propValues = (List<String>) lifecycleProps.get(key);
+                LifeCycleInputBean lifeCycleInputBean = new LifeCycleInputBean();
+                lifeCycleInputBean.setName(propValues.get(1));
+                lifeCycleInputBean.setRequired(Boolean.getBoolean(propValues.get(2)));
+                lifeCycleInputBean.setLabel(propValues.get(3));
+                lifeCycleInputBean.setPlaceHolder(propValues.get(4));
+                lifeCycleInputBean.setTooltip(propValues.get(5));
+                lifeCycleInputBean.setRegex(propValues.get(6));
+                List<LifeCycleInputBean> lifeCycleInputBeanList = lifeCycleInputBeanMap.get(propValues.get(0));
+                if (lifeCycleInputBeanList == null){
+                    lifeCycleInputBeanList  =  new ArrayList<LifeCycleInputBean>();
+                }
+                lifeCycleInputBeanList.add(lifeCycleInputBean);
+                lifeCycleInputBeanMap.put(propValues.get(0),lifeCycleInputBeanList);
             }
         }
 
@@ -286,6 +344,7 @@ public class LifeCycleServiceImpl implements LifeCycleService {
         }
         lifeCycleStateBean.setLifeCycleApprovalBeanList(lifeCycleApprovalBeanList);
         lifeCycleStateBean.setLifeCycleCheckListItemBeans(checkListItemList);
+        lifeCycleStateBean.setLifeCycleInputBeanMap(lifeCycleInputBeanMap);
 
         return lifeCycleStateBean;
     }
