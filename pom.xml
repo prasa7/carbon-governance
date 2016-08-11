@@ -30,12 +30,6 @@
     <name>WSO2 Carbon - Platform Aggregator Pom</name>
     <url>http://wso2.org</url>
 
-    <scm>
-        <url>https://github.com/wso2/carbon-governance.git</url>
-        <developerConnection>scm:git:https://github.com/wso2/carbon-governance.git</developerConnection>
-        <connection>scm:git:https://github.com/wso2/carbon-governance.git</connection>
-        <tag>v4.7.1</tag>
-    </scm>
 
     <modules>
         <module>service-stubs/governance</module>
@@ -98,18 +92,6 @@
                     <source>1.7</source>
                     <target>1.7</target>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-release-plugin</artifactId>
-                <configuration>
-                    <preparationGoals>clean install</preparationGoals>
-                    <autoVersionSubmodules>true</autoVersionSubmodules>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-deploy-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
@@ -1396,7 +1378,6 @@
         <orbit.version.json>2.0.0.wso2v1</orbit.version.json>
         <orbit.version.predic8>1.5.0.wso2v2</orbit.version.predic8>
         <orbit.version.asm>4.0.0.wso2v1</orbit.version.asm>
-        <project.scm.id>my-scm-server</project.scm.id>
         <owasp.encoder.version>1.1</owasp.encoder.version>
 
     </properties>
