@@ -47,8 +47,8 @@
     boolean viewMode = false;
     ManageGenericArtifactServiceClient client;
     ResourceServiceClient resourceServiceClient;
-    String rxtPath = Encode.forHtml(request.getParameter("path"));
-    String rxtName = Encode.forHtml(request.getParameter("rxtName"));
+    String rxtPath = request.getParameter("path");
+    String rxtName = request.getParameter("rxtName");
     try {
         client = new ManageGenericArtifactServiceClient(config, session);
         viewMode = request.getParameter("view") != null;
@@ -140,10 +140,11 @@
         }
     } catch (Exception e) {
         response.setStatus(500);
-        CarbonUIMessage uiMsg = new CarbonUIMessage(CarbonUIMessage.ERROR, e.getMessage(), e);
+        String eMessage = "Failed to get RXT content.";
+        CarbonUIMessage uiMsg = new CarbonUIMessage(CarbonUIMessage.ERROR, eMessage, e);
         session.setAttribute(CarbonUIMessage.ID, uiMsg);
 %>
-<jsp:include page="../admin/error.jsp?<%=e.getMessage()%>"/>
+<jsp:include page="../admin/error.jsp?<%=eMessage%>"/>
 <%
         return;
     }
