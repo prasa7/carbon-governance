@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +61,7 @@ public class GenericArtifactJSONWriter {
     public static final String PREV = "prev";
     public static final String NEXT = "next";
     public static final String BELONG_TO = "belong-to";
+    public static final String ENTRY = "entry";
 
     private final Log log = LogFactory.getLog(GenericArtifactJSONWriter.class);
 
@@ -162,6 +164,8 @@ public class GenericArtifactJSONWriter {
         writer.name(ID).value(artifact.getId());
         writer.name(TYPE).value(shortName);
         String belongToLink = Util.generateBelongToLink(artifact, baseURI);
+
+        Map<String, ArrayList> multiValueAttributes = new HashMap<>();
         for (String key : artifact.getAttributeKeys()) {
             //TODO value can be something else not a String value
             // Get all attributes.
@@ -172,53 +176,102 @@ public class GenericArtifactJSONWriter {
             // If the attributes are more than one.
             if (!NAME.equals(key) && value != null)
                 if (value.length > 1) {
+                    if (key.endsWith(ENTRY)) {
 
-                    String optionTextTableName = key.split("_", 2)[0];
+                        String optionTextTableName = key.split("_", 2)[0];
 
-                    //Get the table name as a upper camel string.
-                    optionTextTableName = optionTextTableName.substring(0, 1).toUpperCase() +
-                            optionTextTableName.substring(1).toLowerCase();
+                        //Get the table name as a upper camel string.
+                        optionTextTableName =
+                                optionTextTableName.substring(0, 1).toUpperCase() + optionTextTableName.substring(1)
+                                        .toLowerCase();
 
-                    List subheadings = evaluateXpath(artifactConfiguration.getContentDefinition(),
-                            "/artifactType/content/table[@name='" + optionTextTableName + "']/subheading/heading",
-                            null);
+                        List subheadings = evaluateXpath(artifactConfiguration.getContentDefinition(),
+                                "/artifactType/content/table[@name='" + optionTextTableName +
+                                        "']/subheading/heading",
+                                null);
 
-                    List<String> headings = new ArrayList<>();
+                        List<String> headings = new ArrayList<>();
 
-                    for (Object subheadingObject : subheadings) {
-                        OMElement subheadingElement = (OMElement) subheadingObject;
-                        headings.add(subheadingElement.getText());
-                    }
-
-                    if (headings.size() > 0) {
-                        writer.name(key);
-                        writer.beginArray();
-                        writer.setIndent("    ");
-                        for (int i = 0; i < value.length; i++) {
-                            writer.beginObject();
-                            // Setting the key and empty string map in JSON for empty values.
-                            if (value[i] == null) {
-                                value[i] = "";
-                            }
-
-                            String[] optionValues = value[i].split(":", headings.size());
-
-                            if (optionValues.length > 0) {
-                                for (int j = 0; j < optionValues.length; j++) {
-                                    writer.name(headings.get(j)).value(optionValues[j]);
-                                }
-                            }
-                            writer.endObject();
+                        for (Object subheadingObject : subheadings) {
+                            OMElement subheadingElement = (OMElement) subheadingObject;
+                            headings.add(subheadingElement.getText());
                         }
-                        writer.endArray();
-                    }
 
+                        if (headings.size() > 0) {
+                            writer.name(key);
+                            writer.beginArray();
+                            writer.setIndent("    ");
+                            for (int i = 0; i < value.length; i++) {
+                                writer.beginObject();
+                                // Setting the key and empty string map in JSON for empty values.
+                                if (value[i] == null) {
+                                    value[i] = "";
+                                }
+
+                                String[] optionValues = value[i].split(":", headings.size());
+
+                                if (optionValues.length > 0) {
+                                    for (int j = 0; j < optionValues.length; j++) {
+                                        writer.name(headings.get(j)).value(optionValues[j]);
+                                    }
+                                }
+                                writer.endObject();
+                            }
+                            writer.endArray();
+                        }
+                    } else {
+                        String[] res = key.split("_");
+                        if (res.length > 1) {
+                            ArrayList existingMultiValueFields = multiValueAttributes.get(res[0]);
+                            if (existingMultiValueFields != null) {
+                                for (int j = 0; j < existingMultiValueFields.size(); j++) {
+                                    Map<String, String> existingValuesMap = (Map<String, String>) existingMultiValueFields
+                                            .remove(0);
+                                    existingValuesMap.put(res[1], value[j]);
+                                    existingMultiValueFields.add(existingValuesMap);
+                                }
+                                multiValueAttributes.put(res[0], existingMultiValueFields);
+                            } else {
+                                ArrayList<Map> unboundedFields = new ArrayList<>();
+                                for (int i = 0; i < value.length; i++) {
+                                    Map<String, String> fields = new HashMap<>();
+                                    fields.put(res[1], value[i]);
+                                    unboundedFields.add(fields);
+                                }
+                                multiValueAttributes.put(res[0], unboundedFields);
+                            }
+                        }
+                    }
                     // If only one attribute is received.
                 } else if (value.length == 1) {
                     writer.name(key).value(value[0]);
                 } else {
                     writer.name(key).nullValue();
                 }
+        }
+
+        Iterator<Map.Entry<String, ArrayList>> it = multiValueAttributes.entrySet().iterator();
+        while (it.hasNext()){
+           Map.Entry<String, ArrayList> unboundedFields = (Map.Entry<String, ArrayList>)it.next();
+            writer.name(unboundedFields.getKey());
+            writer.beginArray();
+            ArrayList unboundedFieldsValues = unboundedFields.getValue();
+            for (Object fields: unboundedFieldsValues) {
+                writer.beginObject();
+                Map<String, String>  fieldMap = (Map<String, String>) fields;
+
+                Iterator<Map.Entry<String, String>> fieldIt = fieldMap.entrySet().iterator();
+                while (fieldIt.hasNext()){
+                    Map.Entry<String, String> fieldMapValue = (Map.Entry<String, String>)fieldIt.next();
+                    String val = fieldMapValue.getValue();
+                    if(fieldMapValue.getValue() == null){
+                        val = "";
+                    }
+                    writer.name(fieldMapValue.getKey()).value(val);
+                }
+                writer.endObject();
+            }
+            writer.endArray();
         }
         String self_link = Util.generateLink(shortName, artifact.getId(), baseURI);
         writer.name(SELF_LINK).value(self_link);
